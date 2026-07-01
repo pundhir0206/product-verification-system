@@ -1,8 +1,0 @@
-- The system must also provide a way to capture a picture of the physical product being inspected.
-- All data from the uploaded file must be stored in a persistent database.
-- make it dockerize
-- push to github
-- Scalability & Performance: The system must be designed to handle very large CSV files (potentially containing millions of records) without failure. The validation and reporting features must remain fast and responsive, even as the database grows and the report's date range expands.
-- Usability: The validation page for the warehouse operator should be straightforward and optimized for quick, repetitive use, potentially on a mobile or handheld device.
-- create a documentation
-- check for production readiness	
