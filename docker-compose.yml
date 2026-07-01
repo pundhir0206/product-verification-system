@@ -1,0 +1,75 @@
+version: '3.9'
+
+services:
+
+  mysql:
+
+    image: mysql:8.4
+
+    container_name: pvs-mysql
+
+    restart: always
+
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: pvs_db
+      MYSQL_USER: pvs_user
+      MYSQL_PASSWORD: pvs_password
+
+    ports:
+      - "3306:3306"
+
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD","mysqladmin","ping","-h","localhost"]
+      interval: 10s
+      retries: 10
+
+  backend:
+
+    build:
+      context: ./backend
+
+    container_name: pvs-backend
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    ports:
+      - "8080:8080"
+
+    environment:
+
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/pvs_db
+
+      SPRING_DATASOURCE_USERNAME: pvs_user
+
+      SPRING_DATASOURCE_PASSWORD: pvs_password
+
+      JWT_SECRET: change-this-super-secret-key-for-development-minimum-256-bits
+
+    volumes:
+
+      - uploaded-images:/app/uploaded-images
+
+  frontend:
+
+    build:
+      context: ./frontend
+
+    container_name: pvs-frontend
+
+    depends_on:
+      - backend
+
+    ports:
+      - "5173:80"
+
+volumes:
+
+  mysql-data:
+
+  uploaded-images:

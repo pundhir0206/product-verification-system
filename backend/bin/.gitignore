@@ -1,0 +1,8 @@
+target/
+*.class
+.mvn/
+!.mvn/wrapper/maven-wrapper.jar
+uploaded-images/
+*.log
+.idea/
+*.iml
