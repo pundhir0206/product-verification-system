@@ -1,230 +1,494 @@
-# Product Verification System
+# \# Product Verification System (PVS)
 
-A full-stack system for bulk product ingestion, floor-level product verification, and
-compliance reporting in a warehouse setting.
+# 
 
-Built for: Bulk CSV import (millions of rows) → barcode-driven floor validation with photo
-capture → date-range verification reports. Includes optional RBAC (Admin / Operator).
+# A production-ready full-stack Product Verification System (PVS) built using \*\*Spring Boot 3.2\*\*, \*\*Java 17\*\*, \*\*React (Vite)\*\*, \*\*Material UI\*\*, \*\*Spring Security\*\*, \*\*JWT Authentication\*\*, \*\*Spring Data JPA\*\*, \*\*MySQL 8\*\*, and \*\*Docker\*\*.
 
-\---
+# 
 
-## 1\. Tech Stack
+# The system is designed for warehouse and manufacturing environments where products are imported in bulk through CSV files and later verified on the warehouse floor using a unique \*\*Warehouse ID (WID)\*\*. Every verification is recorded for reporting and audit purposes, making the application suitable for inventory verification, compliance checks, and product lifecycle management.
 
-|Layer|Choice|Why|
-|-|-|-|
-|Backend|Java 17, Spring Boot 3.2|Matches production stack; mature ecosystem for batch/async work|
-|Database|PostgreSQL 16|Strong relational guarantees for a strict-uniqueness primary key (WID), fast range queries with indexes, native `COPY`/bulk-friendly, `ON CONFLICT` upserts|
-|Cache|Redis 7|Caches repeated report queries (QA managers re-run the same date range often)|
-|Migrations|Flyway|Schema is version-controlled, not left to Hibernate auto-DDL|
-|Auth|Spring Security + JWT|Stateless, horizontally scalable, no server-side session store needed|
-|Frontend|React 18 + Redux Toolkit + Vite|Matches production stack; RTK for predictable auth/session state|
-|Bulk CSV parsing|OpenCSV (streaming)|Never loads the full file into memory|
-|Containerization|Docker Compose|One-command spin-up of Postgres + Redis + backend + frontend|
+# 
 
-\---
+# Unlike a simple CRUD application, this project demonstrates production-grade backend engineering practices including asynchronous processing, streaming CSV ingestion, Hibernate batch processing, JWT-based authentication, clean layered architecture, Dockerized deployment, and scalable database design.
 
-## 2\. Architecture Decisions (for the walkthrough)
+# 
 
-### 2.1 Bulk CSV ingestion at scale (millions of rows)
+# \---
 
-The naive approach — read the whole file, `INSERT`/upsert row by row — falls over past a few
-hundred thousand rows (memory pressure, round-trip latency, lock contention). Instead:
+# 
 
-1. **Request returns immediately.** The controller streams the multipart upload straight to a
-temp file on disk and returns `202 Accepted` with a `jobId`. It does not block on parsing.
-2. **Async streaming parse.** A background thread (`@Async`, dedicated thread pool) reads the
-CSV row-by-row with OpenCSV — constant memory regardless of file size — and JDBC-batches
-rows (default batch size 5,000) into an unlogged `staging\\\_products` table tagged with the
-job id.
-3. **Set-based merge.** Once staging is loaded, a single SQL statement (`INSERT ... SELECT ... ON CONFLICT (wid) DO UPDATE`) merges staging into `products`. This is one round trip
-for the whole file instead of one round trip per row, and it's where WID uniqueness is
-enforced — at the database constraint level, not in application code, so it holds even
-under concurrent uploads.
-4. **Progress polling.** The frontend polls `GET /api/upload/status/{jobId}` every 1.5s and
-shows a live progress bar (rows processed / total, inserted vs. updated vs. failed) instead
-of holding a spinner against a single long HTTP call.
-5. **Bad rows don't fail the job.** A row with a missing WID or unparseable date is skipped
-and counted in `failed\\\_rows`; the rest of the file still loads.
+# \# Table of Contents
 
-This is deliberately not Kafka-based: for a single bulk-import endpoint, a staging table +
-set-based upsert is simpler to operate and just as scalable. If ingestion needed to fan out to
-multiple downstream consumers (e.g., notify a separate compliance system per row), a
-Kafka Outbox pattern would be the next step — happy to discuss that trade-off live.
+# 
 
-### 2.2 Floor validation usability
+# \* Project Overview
 
-* WID input is a plain autofocused text field: USB/Bluetooth barcode scanners emit keystrokes
+# \* Key Features
 
-  * Enter, so no special scanner integration is needed — the browser just sees fast typing.
-* Camera capture uses `<input type="file" accept="image/\\\*" capture="environment">`, which
-opens the native camera directly on a handheld/mobile device without extra libraries.
-* After each verification, the form resets and refocuses the WID field automatically so an
-operator can keep scanning items back-to-back without touching anything but the scanner and
-a "next" tap.
+# \* Technology Stack
 
-### 2.3 Data integrity
+# \* System Architecture
 
-* `products.wid` is the primary key — the database itself rejects a duplicate WID, not just
-application logic.
-* The staging→products merge de-duplicates in-file duplicate WIDs (`DISTINCT ON (wid) ... ORDER BY seq\\\_no DESC`, so the last row for a WID in the file wins) before the upsert, since
-`ON CONFLICT` can't affect the same row twice in one statement.
-* Every validation event is immutably logged (`validation\\\_logs`) with a snapshot of the EAN/
-dates at verification time, the operator, and a timestamp — so reports reflect what was
-actually shown to the operator even if the product record is edited later.
+# \* Core Modules
 
-### 2.4 Reporting performance
+# \* CSV Ingestion Pipeline
 
-* `validation\\\_logs.verified\\\_at` is indexed, so date-range scans stay fast as the table grows
-into the tens of millions of rows.
-* Report pages are capped at 500 rows and paginated — a client can't accidentally request a
-huge in-memory payload.
-* Repeated queries for the same date range are cached in Redis for 2 minutes.
+# \* Authentication \& Authorization
 
-\---
+# \* Product Verification Workflow
 
-## 3\. Data Model
+# \* Reporting Module
 
-```
-products                         validation\\\_logs                upload\\\_jobs
----------                        ----------------                -----------
-wid (PK)                         id (PK)                         id (PK, uuid)
-ean            \\\[indexed]         wid              \\\[indexed]      file\\\_name
-manufacturing\\\_date                ean                             status
-expiry\\\_date                      manufacturing\\\_date               total/processed/
-created\\\_at                       expiry\\\_date                        inserted/updated/
-updated\\\_at                       found                               failed\\\_rows
-                                  operator\\\_username                error\\\_message
-                                  image\\\_path                       created\\\_by / at
-                                  verified\\\_at      \\\[indexed]        updated\\\_at
+# \* Database Design
 
-users                             staging\\\_products (transient, per-job)
------                             ------------------------------------
-id (PK)                          job\\\_id, wid, ean, manufacturing\\\_date,
-username (unique)                expiry\\\_date, seq\\\_no
-password\\\_hash
-role (ADMIN | OPERATOR)
-enabled
-```
+# \* Project Structure
 
-\---
+# \* API Documentation
 
-## 4\. Setup \& Deployment
+# \* Docker Deployment
 
-### Option A — Docker Compose (recommended, one command)
+# \* Local Development
 
-Requires Docker + Docker Compose installed.
+# \* Production Readiness
 
-```bash
-cd pvs
-docker compose up --build
-```
+# \* Performance Optimizations
 
-This starts Postgres, Redis, the backend (port `8080`), and the frontend (port `3000`).
-Flyway runs migrations automatically on backend startup, including seed users:
+# \* Scalability
 
-|Username|Password|Role|
-|-|-|-|
-|`admin`|`admin123`|ADMIN|
-|`operator`|`operator123`|OPERATOR|
+# \* Future Enhancements
 
-**Change these before any real deployment** — create new users from the User Management page
-and disable/rotate the seeded ones.
+# 
 
-Open **http://localhost:3000**.
+# \---
 
-### Option B — Manual local development
+# 
 
-**Backend**
+# \# Project Overview
 
-```bash
-cd backend
-# start Postgres and Redis yourself, e.g.:
-docker run -d --name pg -e POSTGRES\\\_DB=pvs -e POSTGRES\\\_USER=pvs\\\_user \\\\
-  -e POSTGRES\\\_PASSWORD=pvs\\\_password -p 5432:5432 postgres:16-alpine
-docker run -d --name redis -p 6379:6379 redis:7-alpine
+# 
 
-mvn spring-boot:run
-```
+# The Product Verification System (PVS) is designed to solve a common warehouse problem:
 
-Backend runs on `http://localhost:8080`. Flyway migrates the schema on startup.
+# 
 
-**Frontend**
+# 1\. Import millions of product records from supplier CSV files.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+# 2\. Store product information in a centralized database.
 
-Frontend runs on `http://localhost:5173` (Vite dev server), talking to the backend via
-`VITE\\\_API\\\_BASE\\\_URL` (defaults to `http://localhost:8080`, override in a `.env` file).
+# 3\. Allow warehouse operators to verify products using their Warehouse ID (WID).
 
-### Testing bulk ingestion at scale
+# 4\. Capture product images during verification.
 
-A generator script is included to produce large CSVs for a live scale demo:
+# 5\. Maintain complete verification history.
 
-```bash
-cd scripts
-python3 generate\\\_sample\\\_csv.py --rows 2000000 --out sample\\\_products.csv
-```
+# 6\. Generate reports for auditing and compliance.
 
-Upload `sample\\\_products.csv` from the Bulk Upload page (as `admin`) and watch the job
-progress bar. On a laptop-class machine this comfortably handles multi-million-row files
-without the request timing out, because ingestion is fully async.
+# 
 
-\---
+# The application is built around modern Spring Boot best practices and follows a clean layered architecture that separates controllers, services, repositories, entities, and security concerns.
 
-## 5\. API Reference
+# 
 
-|Method|Path|Role|Description|
-|-|-|-|-|
-|POST|`/api/auth/login`|—|Returns a JWT|
-|POST|`/api/users`|ADMIN|Create a user|
-|GET|`/api/users`|ADMIN|List users|
-|POST|`/api/upload`|ADMIN|Upload CSV, returns `jobId` (202)|
-|GET|`/api/upload/status/{jobId}`|ADMIN|Poll ingestion progress|
-|POST|`/api/validate`|ADMIN, OPERATOR|Verify a WID (+ optional image), logs the event|
-|GET|`/api/reports/verifications?startDate=\\\&endDate=\\\&page=\\\&size=`|ADMIN, OPERATOR|Paginated verification report|
+# The backend is completely database-independent from an application perspective by relying exclusively on \*\*Spring Data JPA\*\* and Hibernate. No business logic depends on vendor-specific SQL syntax, making it easy to migrate to another relational database with minimal configuration changes.
 
-All endpoints except `/api/auth/login` require `Authorization: Bearer <token>`.
+# 
 
-\---
+# \---
 
-## 6\. Optional / Good-to-Have Features Implemented
+# 
 
-* ✅ Login page + admin-driven user creation
-* ✅ Two roles (ADMIN, OPERATOR) assignable at creation
-* ✅ Role-based access control (upload \& user management are admin-only; validation and
-reports are available to both roles, matching "operator should only be able to verify" plus
-reporting visibility for follow-up)
-* ⏳ Auto-extracting manufacturing/expiry dates from the captured image (OCR) — not
-implemented; would use a vision model or an OCR service (e.g. Tesseract / cloud OCR API) on
-the captured photo, matched against system data with a confidence threshold before flagging
-a mismatch. Noting this as a designed-for-but-not-built extension for the walkthrough.
+# \# Key Features
 
-\---
+# 
 
-## 7\. Project Structure
+# \## Authentication \& Authorization
 
-```
-pvs/
-├── backend/            Spring Boot API 		
-│   └── src/main/java/com/pvs/
-│       ├── config/       Security, Redis cache, async executor
-│       ├── controller/    REST endpoints
-│       ├── dto/          Request/response records
-│       ├── entity/       JPA entities
-│       ├── exception/    Global error handling
-│       ├── repository/   Spring Data JPA repositories
-│       ├── security/     JWT filter/util, UserDetailsService
-│       └── service/      Business logic (CSV ingestion, validation, reports, auth)
-├── frontend/           React + Redux Toolkit SPA
-│   └── src/
-│       ├── api/           Axios client with JWT interceptor
-│       ├── components/    Sidebar, ProtectedRoute
-│       ├── pages/         Login, Upload, Validate, Reports, User Management
-│       └── store/         Redux auth slice
-├── scripts/            generate\\\_sample\\\_csv.py — scale-testing helper
-└── docker-compose.yml
-```
+# 
+
+# \* JWT-based authentication
+
+# \* Stateless security architecture
+
+# \* BCrypt password encryption
+
+# \* Spring Security integration
+
+# \* Role-based authorization
+
+# \* Automatic admin user creation during application startup
+
+# 
+
+# \---
+
+# 
+
+# \## Product Management
+
+# 
+
+# \* Store product information
+
+# \* Unique Warehouse ID (WID)
+
+# \* EAN support
+
+# \* Manufacturing date
+
+# \* Expiry date
+
+# \* Automatic creation and update timestamps
+
+# 
+
+# \---
+
+# 
+
+# \## Bulk CSV Upload
+
+# 
+
+# Designed for very large CSV files while maintaining low memory consumption.
+
+# 
+
+# Features include:
+
+# 
+
+# \* Streaming CSV parsing using OpenCSV
+
+# \* Row-by-row processing
+
+# \* Hibernate batch inserts and updates
+
+# \* Automatic detection of existing products
+
+# \* Insert new products
+
+# \* Update existing products
+
+# \* Invalid row handling without stopping the upload
+
+# \* Upload progress tracking
+
+# \* Asynchronous background execution
+
+# \* Automatic temporary file cleanup
+
+# 
+
+# \---
+
+# 
+
+# \## Product Verification
+
+# 
+
+# Warehouse operators can verify products by scanning or entering the Warehouse ID.
+
+# 
+
+# Verification includes:
+
+# 
+
+# \* Product lookup
+
+# \* Validation of product information
+
+# \* Image capture
+
+# \* Verification history
+
+# \* Audit trail
+
+# 
+
+# \---
+
+# 
+
+# \## Reporting
+
+# 
+
+# Generate reports based on verification history.
+
+# 
+
+# Reports support:
+
+# 
+
+# \* Date range filtering
+
+# \* Verification history
+
+# \* Product lookup
+
+# \* Pagination
+
+# \* Efficient database access
+
+# 
+
+# \---
+
+# 
+
+# \## Image Upload
+
+# 
+
+# Supports storing product images during verification.
+
+# 
+
+# Images are linked with validation records and stored separately from product metadata.
+
+# 
+
+# \---
+
+# 
+
+# \## Docker Support
+
+# 
+
+# Complete containerized deployment using Docker Compose.
+
+# 
+
+# Services include:
+
+# 
+
+# \* Spring Boot Backend
+
+# \* React Frontend
+
+# \* MySQL Database
+
+# 
+
+# Persistent Docker volumes ensure database and uploaded images remain available across container restarts.
+
+# 
+
+# \---
+
+# 
+
+# \# Why This Project?
+
+# 
+
+# Many portfolio projects focus primarily on CRUD operations.
+
+# 
+
+# This project demonstrates significantly more advanced backend engineering concepts, including:
+
+# 
+
+# \* Large-scale CSV processing
+
+# \* Background job execution
+
+# \* Hibernate batch processing
+
+# \* Transaction management
+
+# \* Spring Security
+
+# \* JWT authentication
+
+# \* Dockerized deployment
+
+# \* Production-oriented application configuration
+
+# \* RESTful API design
+
+# \* Layered architecture
+
+# \* Database-independent persistence using Spring Data JPA
+
+# 
+
+# The goal is to simulate the architecture and engineering practices commonly found in enterprise backend systems.
+
+# 
+
+# \---
+
+# 
+
+# \# Technology Stack
+
+# 
+
+# \## Backend
+
+# 
+
+# \* Java 17
+
+# \* Spring Boot 3.2
+
+# \* Spring Security
+
+# \* Spring Data JPA (Hibernate)
+
+# \* JWT Authentication
+
+# \* Maven
+
+# \* OpenCSV
+
+# \* Lombok
+
+# \* HikariCP
+
+# \* Spring Boot Actuator
+
+# 
+
+# \---
+
+# 
+
+# \## Frontend
+
+# 
+
+# \* React
+
+# \* Vite
+
+# \* Material UI
+
+# \* Axios
+
+# 
+
+# \---
+
+# 
+
+# \## Database
+
+# 
+
+# \* MySQL 8
+
+# 
+
+# The application exclusively uses Spring Data JPA for persistence.
+
+# 
+
+# There is:
+
+# 
+
+# \* No JdbcTemplate
+
+# \* No native SQL
+
+# \* No Flyway
+
+# \* No database-specific business logic
+
+# 
+
+# This keeps the application portable across relational database systems.
+
+# 
+
+# \---
+
+# 
+
+# \## Infrastructure
+
+# 
+
+# \* Docker
+
+# \* Docker Compose
+
+# 
+
+# \---
+
+# 
+
+# \# High-Level Architecture
+
+# 
+
+# ```
+
+# &#x20;                       +----------------------+
+
+# &#x20;                       |    React Frontend    |
+
+# &#x20;                       |   (Material UI)      |
+
+# &#x20;                       +----------+-----------+
+
+# &#x20;                                  |
+
+# &#x20;                                  |
+
+# &#x20;                         REST APIs (JWT)
+
+# &#x20;                                  |
+
+# &#x20;                                  v
+
+# &#x20;                    +---------------------------+
+
+# &#x20;                    |    Spring Boot Backend    |
+
+# &#x20;                    +---------------------------+
+
+# &#x20;                    |                           |
+
+# &#x20;                    | Authentication            |
+
+# &#x20;                    | User Management           |
+
+# &#x20;                    | CSV Upload               |
+
+# &#x20;                    | Product Verification     |
+
+# &#x20;                    | Reports                 |
+
+# &#x20;                    | Image Storage           |
+
+# &#x20;                    +------------+------------+
+
+# &#x20;                                 |
+
+# &#x20;                        Spring Data JPA
+
+# &#x20;                                 |
+
+# &#x20;                                 v
+
+# &#x20;                       +------------------+
+
+# &#x20;                       |     MySQL 8      |
+
+# &#x20;                       +------------------+
+
+# ```
+
+# 
 
